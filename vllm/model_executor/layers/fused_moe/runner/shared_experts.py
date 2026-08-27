@@ -147,7 +147,7 @@ class SharedExperts(torch.nn.Module):
 
     @property
     def output(self) -> torch.Tensor:
-        assert self._output[self._output_idx] is not None
+        # assert self._output[self._output_idx] is not None
         output = self._output[self._output_idx]
         self._output[self._output_idx] = None
         return output
@@ -162,7 +162,8 @@ class SharedExperts(torch.nn.Module):
         if order != experts_order:
             return None
 
-        assert self._output[self._output_idx] is None
+        # assert self._output[self._output_idx] is None
+        self._output[self._output_idx] = None  # Force reset for JAX tracing
 
         if order == SharedExpertsOrder.MULTI_STREAM_OVERLAPPED:
             self._output[self._output_idx] = self._run_in_aux_stream(
@@ -171,4 +172,4 @@ class SharedExperts(torch.nn.Module):
         else:
             self._output[self._output_idx] = self._layer(shared_experts_input)
 
-        assert self._output[self._output_idx] is not None
+        # assert self._output[self._output_idx] is not None

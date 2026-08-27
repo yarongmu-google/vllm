@@ -270,6 +270,40 @@ class LoggingStatLogger(StatLoggerBase):
             log_parts.append("MM cache hit rate: %.1f%%")
             log_args.append(self.mm_caching_metrics.hit_rate * 100)
 
+        # --- NATIVE CSV LOGGING PATCH ---
+        try:
+            import csv
+            import time
+            import os
+            # Ensure the relative tmp directory exists
+            os.makedirs("./tmp", exist_ok=True)
+            csv_path = "./tmp/vllm_server_stats.csv"
+            
+            # If this is the first write in this instance, write headers and overwrite
+            write_mode = "a"
+            if not hasattr(self, "_csv_initialized"):
+                self._csv_initialized = True
+                write_mode = "w"
+                
+            with open(csv_path, write_mode, newline="") as f:
+                writer = csv.writer(f)
+                if write_mode == "w":
+                    writer.writerow([
+                        "Timestamp", "Prompt Throughput (tok/s)", "Generation Throughput (tok/s)",
+                        "Running Reqs", "Waiting Reqs", "KV Cache Usage (%)", "Prefix Cache Hit Rate (%)"
+                    ])
+                writer.writerow([
+                    time.strftime('%m-%d %H:%M:%S'),
+                    self.last_prompt_throughput,
+                    self.last_generation_throughput,
+                    self.last_scheduler_stats.num_running_reqs,
+                    total_waiting,
+                    self.last_scheduler_stats.kv_cache_usage * 100,
+                    self.prefix_caching_metrics.hit_rate * 100
+                ])
+        except Exception as e:
+            logger.error(f"Failed to write to CSV: {e}")
+        # --------------------------------
         log_fn(
             self.log_prefix + ", ".join(log_parts),
             *log_args,

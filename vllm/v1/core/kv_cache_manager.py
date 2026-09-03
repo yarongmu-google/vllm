@@ -241,6 +241,30 @@ class KVCacheManager:
 
         return self.create_kv_cache_blocks(computed_blocks), num_new_computed_tokens
 
+
+    def _admission_debug(self, gate: str, request, needed: int,
+                         watermark: int, free: int, reserved: int = 0) -> None:
+        """VLLM_ADMISSION_DEBUG=1: log WHY allocate_slots refused, with the
+        per-group demand breakdown - the numbers the stats CSV cannot show.
+        Rate-limited to one line per second."""
+        import os
+        import time
+        if os.environ.get("VLLM_ADMISSION_DEBUG") != "1":
+            return
+        now = time.monotonic()
+        if now - getattr(self, "_adm_dbg_t", 0.0) < 1.0:
+            return
+        self._adm_dbg_t = now
+        per_group = []
+        for i, mgr in enumerate(self.coordinator.single_type_managers):
+            per_group.append(f"g{i}:{type(mgr).__name__}")
+        logger.info(
+            "[admission-debug] REFUSED gate=%s req=%s status=%s "
+            "num_tokens=%d needed_blocks=%d free=%d reserved=%d "
+            "watermark=%d groups=%s",
+            gate, request.request_id, request.status, request.num_tokens,
+            needed, free, reserved, watermark, ",".join(per_group))
+
     def allocate_slots(
         self,
         request: Request,
@@ -384,6 +408,9 @@ class KVCacheManager:
             )
             required_blocks = num_blocks_to_allocate + watermark_blocks
             if required_blocks > self.block_pool.get_num_free_blocks():
+                self._admission_debug(
+                    "full_isl", request, num_blocks_to_allocate,
+                    watermark_blocks, self.block_pool.get_num_free_blocks())
                 return None
 
         num_tokens_main_model = total_computed_tokens + num_new_tokens
@@ -419,6 +446,9 @@ class KVCacheManager:
         required_blocks = num_blocks_to_allocate + watermark_blocks
         if required_blocks > available_blocks:
             # Cannot allocate new blocks
+            self._admission_debug(
+                "step", request, num_blocks_to_allocate, watermark_blocks,
+                self.block_pool.get_num_free_blocks(), reserved_blocks)
             return None
 
         if (

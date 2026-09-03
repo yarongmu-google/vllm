@@ -263,12 +263,19 @@ class KVCacheManager:
         per_group = []
         for i, mgr in enumerate(self.coordinator.single_type_managers):
             per_group.append(f"g{i}:{type(mgr).__name__}")
-        logger.info(
-            "[admission-debug] REFUSED gate=%s req=%s status=%s "
-            "num_tokens=%d needed_blocks=%d free=%d reserved=%d "
-            "watermark=%d groups=%s",
-            gate, request.request_id, request.status, request.num_tokens,
-            needed, free, reserved, watermark, ",".join(per_group))
+        line = (
+            f"[admission-debug] REFUSED gate={gate} req={request.request_id} "
+            f"status={request.status} num_tokens={request.num_tokens} "
+            f"needed_blocks={needed} free={free} reserved={reserved} "
+            f"watermark={watermark} groups={','.join(per_group)}")
+        logger.info("%s", line)
+        # scheduler workers may run in spawned processes with no logging
+        # handler - mirror to a per-pid file so the trace survives
+        try:
+            with open(f"/tmp/admission_debug.{os.getpid()}.log", "a") as f:
+                f.write(f"{time.time():.3f} {line}\n")
+        except OSError:
+            pass
 
     def allocate_slots(
         self,

@@ -161,6 +161,11 @@ class KVCacheManager:
         # admitting waiting/preempted requests, to avoid frequent preemptions.
         assert watermark >= 0.0, "watermark must be non-negative"
         self.watermark_blocks = int(watermark * kv_cache_config.num_blocks)
+        import os as _os
+        if _os.environ.get("VLLM_ADMISSION_DEBUG") == "1":
+            logger.info("[admission-debug] tracer ARMED (num_blocks=%d, "
+                        "watermark_blocks=%d)", kv_cache_config.num_blocks,
+                        self.watermark_blocks)
         self.kv_cache_event_metadata = tuple(
             (
                 get_kv_cache_spec_kind(group.kv_cache_spec).value,

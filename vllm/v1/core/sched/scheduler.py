@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import itertools
+import os as _adm_os
 import time
+
+_ADM_DBG = _adm_os.environ.get("VLLM_ADMISSION_DEBUG") == "1"
 from collections import defaultdict, deque
 from collections.abc import Iterable
 from dataclasses import replace
@@ -422,6 +425,7 @@ class Scheduler(SchedulerInterface):
         scheduled_timestamp = time.monotonic()
 
         self.kv_cache_manager.new_step_starts()
+        _adm_dbg_reason = "none_attempted_or_exhausted"
 
         # DP prefill balancing: on a throttled (non-cadence-aligned) step, defer
         # all prefill compute unless saturated.
@@ -790,6 +794,7 @@ class Scheduler(SchedulerInterface):
                 elif defer_prefills and num_computed_tokens < request.num_tokens - 1:
                     # DP prefill balancing: defer this step's local prefill
                     # compute to a cadence-aligned step.
+                    _adm_dbg_reason = "defer_prefills_cadence"
                     break
                 else:
                     # Number of tokens to be scheduled.
@@ -906,6 +911,7 @@ class Scheduler(SchedulerInterface):
                 )
 
                 if new_blocks is None:
+                    _adm_dbg_reason = "allocate_slots_refused"
                     # The request cannot be scheduled.
 
                     # NOTE: we need to untouch the request from the encode cache
@@ -1001,6 +1007,17 @@ class Scheduler(SchedulerInterface):
                         if self.ec_connector is not None:
                             self.ec_connector.update_state_after_alloc(request, i)
 
+            if (_ADM_DBG and self.waiting
+                    and time.monotonic() - getattr(self, "_adm_dbg_t2", 0.0) > 1.0):
+                self._adm_dbg_t2 = time.monotonic()
+                logger.info(
+                    "[admission-debug] waiting-pass end: reason=%s waiting=%d "
+                    "running=%d token_budget=%d defer_prefills=%s "
+                    "throttle=%s capacity_bound=%s free_blocks=%d",
+                    _adm_dbg_reason, len(self.waiting), len(self.running),
+                    token_budget, defer_prefills, throttle_prefills,
+                    self.prefill_capacity_bound,
+                    self.kv_cache_manager.block_pool.get_num_free_blocks())
             # re-queue requests skipped in this pass ahead of older skipped items.
             if step_skipped_waiting:
                 self.skipped_waiting.prepend_requests(step_skipped_waiting)
